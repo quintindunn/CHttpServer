@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <string.h>
 
@@ -7,10 +8,14 @@
 
 #include <netinet/in.h>
 
-#define port 9012
+#define port 9016
 #define backlog 10 // backlog  argument  defines the maximum length to which the queue of pending connections for sockfd may grow.
 
 void handle_client(int);
+
+int get_request_line_count(char* buff);
+char* parse_method(char *buff);
+char* parse_endpoint(char* buff);
 
 int main() {
     printf("Hello, this is me creating a http server only using the linux manual (for c code)!\n");
@@ -68,7 +73,7 @@ int main() {
         int client_fd = accept(fd, (struct sockaddr*) &peer_addr, &peer_addr_size);
         if (client_fd == -1)
         {
-            printf("Error handling client.\n");
+            printf("Error starting client handler.\n");
         }
         else
         {
@@ -79,12 +84,83 @@ int main() {
     return 0;
 }
 
+/*
+Request syntax:
+
+L1: <METHOD> <URI> <PROTOCOL>
+L2-(n-1): hkey: hv
+l(n): nl
+*/
+
+int get_request_line_count(char *buff) {
+    int linecount = 0;
+    for (int i = 0; i < strlen(buff); i++) {
+        {
+            if (buff[i] == '\n')
+                linecount++;
+        }
+    }
+    return linecount;
+}
+
+char* parse_method(char *buff) {
+    // Method is the first thing sent, it will simply terminate at the first space.
+    // To define the char array we first need to determine the size of the method name.
+    const int max_method_size = 32;
+
+    char *method = malloc(max_method_size);
+
+    for (int i = 0; i < max_method_size; i++) {
+        if (buff[i] == ' ')
+            break;
+        else
+            method[i] = buff[i];
+    }
+
+    return method;
+}
+
+char* parse_endpoint(char *buff) {
+    // endpoint is the second thing sent, first we need to find the first space as a starting index.
+    int start_idx = 1;
+    for (int i = 0; i < strlen(buff); i++) {
+        if (buff[i] == ' ')
+            break;
+        start_idx++;
+    }
+    // Next we need to find the end of the endpoint.
+    int end_idx = start_idx;
+    for (int i = start_idx; i < strlen(buff); i++) {
+        if (buff[i] == ' ')
+            break;
+        end_idx++;
+    }
+
+    // Now we know the range the endpoint is in is start_idx:end_idx.
+    char *endpoint = malloc(end_idx-start_idx);
+    
+    for (int i = start_idx; i < end_idx; i++)
+    {
+        endpoint[i-start_idx] = buff[i];
+    }
+
+    return endpoint;
+}
+
 void handle_client(int client_fd) {
     printf("Handling client at file descriptor %d\n", client_fd);
 
-    char buff[64];
+    char buff[8192];
     read(client_fd, buff, sizeof(buff));
-    printf("%s\n", buff);
 
-    bzero(buff, sizeof(buff));
+    printf("REQUEST:\n---\n%s---\n", buff);
+    
+    int lc = get_request_line_count(buff);
+    printf("Line count: %d\n", lc);
+
+    char* method = parse_method(buff);
+    printf("Request method: %s\n", method);
+
+    char* endpoint = parse_endpoint(buff);
+    printf("Request endpoint: %s\n", endpoint);
 }
