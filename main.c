@@ -8,7 +8,12 @@
 
 #include <netinet/in.h>
 
-#define port 9016
+// For debugging
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+
+#define port 9041
 #define backlog 10 // backlog  argument  defines the maximum length to which the queue of pending connections for sockfd may grow.
 
 void handle_client(int);
@@ -19,6 +24,7 @@ char* parse_endpoint(char* buff);
 
 int main() {
     printf("Hello, this is me creating a http server only using the linux manual (for c code)!\n");
+    printf("Host: 127.0.0.1:%d\n", port);
 
     // Create the socket
     
@@ -147,6 +153,68 @@ char* parse_endpoint(char *buff) {
     return endpoint;
 }
 
+void parse_headers(char *buff, int header_count) {
+    printf("Parsing headers.\n");
+
+    unsigned int bufflen = strlen(buff);
+    // First line of the buffer doesn't contain headers.
+    int firstline_offset = 0;
+    for (int i = 0; i < bufflen; i++) {
+        if (buff[i] == '\n')
+        {
+        firstline_offset = i;
+        break;
+        }
+            
+    }
+
+    // Get locations of the start of each header.
+    int* line_start_locations = (int *) malloc(header_count * sizeof(int));
+    int nl = header_count;
+    for (int i = firstline_offset; i < bufflen; i++) {
+        if (buff[i] == '\n')
+        {
+            nl--;
+            line_start_locations[header_count-nl] = i+1;
+    
+            if (nl == 0) // Hopefully will future proof for if I add body parsing.
+                break;
+        }
+    }
+
+    // Parse the individual headers.
+    for (int i = 0; i < header_count; i++)
+    {
+        // Get location of the colon and line end.
+        int colon_location = -1, line_end = -1;
+        for (int j = line_start_locations[i]; j < bufflen; j++)
+        {
+            if (colon_location == -1 && buff[j] == ':')
+                colon_location = j;
+            else if (buff[j] == '\n')
+                line_end = j;
+
+        }
+
+        if (colon_location == -1 || line_end == -1)
+        {
+            continue;
+        }
+
+        // Get the keys
+        int key_len = colon_location - line_start_locations[i];
+        char *key = malloc(key_len);
+
+        for (int j = firstline_offset; j < key_len + line_start_locations[i]; j++)
+        {   
+            key[j - line_start_locations[i]] = buff[j];
+        }
+
+        printf("HEADER:%s\n", key);
+    }
+    printf("\n");
+}
+
 void handle_client(int client_fd) {
     printf("Handling client at file descriptor %d\n", client_fd);
 
@@ -154,7 +222,7 @@ void handle_client(int client_fd) {
     read(client_fd, buff, sizeof(buff));
 
     printf("REQUEST:\n---\n%s---\n", buff);
-    
+
     int lc = get_request_line_count(buff);
     printf("Line count: %d\n", lc);
 
@@ -163,4 +231,6 @@ void handle_client(int client_fd) {
 
     char* endpoint = parse_endpoint(buff);
     printf("Request endpoint: %s\n", endpoint);
+
+    parse_headers(buff, lc);
 }
