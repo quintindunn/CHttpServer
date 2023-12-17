@@ -14,7 +14,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-#define PORT 9042
+#define PORT 9050
 #define BACKLOG 10 // BACKLOG  argument  defines the maximum length to which the queue of pending connections for sockfd may grow.
 
 #define MAX_PACKET_SIZE 8192
@@ -197,6 +197,19 @@ void parse_headers(char *buff, char* header_results[MAX_PACKET_SIZE][2]) {
     }
 }
 
+char* hello_world() {
+    char* response = (char*) malloc(strlen("HTTP/1.1 200 OK\nContent-Type: text/html\n\n<h1>Hello, World!</h1>\n\n")+1);
+
+    strcpy(response, "HTTP/1.1 200 OK\nContent-Type: text/html\n\n<h1>Hello, World!</h1>\n\n");
+    return response;
+}
+
+void send_response(int sockfd, char *response_str) {
+    printf("Sending response!");
+
+    printf("%ld\n", send(sockfd, response_str, strlen(response_str), 0));
+}
+
 void handle_client(int client_fd) {
     printf("Handling client at file descriptor %d\n", client_fd);
 
@@ -225,4 +238,8 @@ void handle_client(int client_fd) {
         else
             break;
     }
+
+    // Get response
+    char* response = hello_world();
+    send_response(client_fd, response);
 }
