@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
 
 #include <string.h>
@@ -13,8 +14,10 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-#define port 9041
-#define backlog 10 // backlog  argument  defines the maximum length to which the queue of pending connections for sockfd may grow.
+#define PORT 9042
+#define BACKLOG 10 // BACKLOG  argument  defines the maximum length to which the queue of pending connections for sockfd may grow.
+
+#define MAX_PACKET_SIZE 8192
 
 void handle_client(int);
 
@@ -24,7 +27,7 @@ char* parse_endpoint(char* buff);
 
 int main() {
     printf("Hello, this is me creating a http server only using the linux manual (for c code)!\n");
-    printf("Host: 127.0.0.1:%d\n", port);
+    printf("Host: 127.0.0.1:%d\n", PORT);
 
     // Create the socket
     
@@ -45,7 +48,7 @@ int main() {
    /*
     struct sockaddr_in {
         sa_family_t    sin_family; // address family: AF_INET
-        in_port_t      sin_port;   // port in network byte order
+        in_port_t      sin_port;   // PORT in network byte order
         struct in_addr sin_addr;   // internet address
     };
    */
@@ -55,7 +58,7 @@ int main() {
 
     svr_addr.sin_family = AF_INET;
     svr_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    svr_addr.sin_port = htons(port);
+    svr_addr.sin_port = htons(PORT);
 
     int binded = bind(fd, (struct sockaddr*) &svr_addr, sizeof(svr_addr));
     if (binded == -1)
@@ -64,7 +67,7 @@ int main() {
         return 1;
     }
 
-    int listening = listen(fd, backlog);
+    int listening = listen(fd, BACKLOG);
     if (listening == -1)
     {
         printf("Error listening to socket.\n");
@@ -100,7 +103,8 @@ l(n): nl
 
 int get_request_line_count(char *buff) {
     int linecount = 0;
-    for (int i = 0; i < strlen(buff); i++) {
+    size_t char_count = strlen(buff);
+    for (size_t i = 0; i < char_count; i++) {
         {
             if (buff[i] == '\n')
                 linecount++;
@@ -129,14 +133,16 @@ char* parse_method(char *buff) {
 char* parse_endpoint(char *buff) {
     // endpoint is the second thing sent, first we need to find the first space as a starting index.
     int start_idx = 1;
-    for (int i = 0; i < strlen(buff); i++) {
+    size_t char_count = strlen(buff);
+
+    for (size_t i = 0; i < char_count; i++) {
         if (buff[i] == ' ')
             break;
         start_idx++;
     }
     // Next we need to find the end of the endpoint.
     int end_idx = start_idx;
-    for (int i = start_idx; i < strlen(buff); i++) {
+    for (size_t i = start_idx; i < char_count; i++) {
         if (buff[i] == ' ')
             break;
         end_idx++;
@@ -153,72 +159,48 @@ char* parse_endpoint(char *buff) {
     return endpoint;
 }
 
-void parse_headers(char *buff, int header_count) {
+void parse_headers(char *buff, char* header_results[MAX_PACKET_SIZE][2]) {
     printf("Parsing headers.\n");
 
-    unsigned int bufflen = strlen(buff);
-    // First line of the buffer doesn't contain headers.
-    int firstline_offset = 0;
-    for (int i = 0; i < bufflen; i++) {
-        if (buff[i] == '\n')
-        {
-        firstline_offset = i;
-        break;
-        }
-            
-    }
+    char *lines = NULL;
 
-    // Get locations of the start of each header.
-    int* line_start_locations = (int *) malloc(header_count * sizeof(int));
-    int nl = header_count;
-    for (int i = firstline_offset; i < bufflen; i++) {
-        if (buff[i] == '\n')
-        {
-            nl--;
-            line_start_locations[header_count-nl] = i+1;
-    
-            if (nl == 0) // Hopefully will future proof for if I add body parsing.
-                break;
-        }
-    }
+    lines = strtok(buff, "\r\n");
 
-    // Parse the individual headers.
-    for (int i = 0; i < header_count; i++)
+    int line = 0;
+    while (1)
     {
-        // Get location of the colon and line end.
-        int colon_location = -1, line_end = -1;
-        for (int j = line_start_locations[i]; j < bufflen; j++)
+        lines = strtok(NULL, "\r\n");
+        if (lines == NULL)
+            break;
+        
+        int line_len = strlen(lines);
+        
+        char *key = malloc(line_len);
+        char *value = malloc(line_len);
+
+        int seperator_idx = -1;
+        for(int i = 0; i < line_len; i++)
         {
-            if (colon_location == -1 && buff[j] == ':')
-                colon_location = j;
-            else if (buff[j] == '\n')
-                line_end = j;
+            if (seperator_idx == -1 && lines[i] == ':')
+                seperator_idx = i;
 
+            if (seperator_idx == -1)
+                key[i] = lines[i];
+            else
+                value[i-seperator_idx] = lines[i];
         }
+        value += 2; // Remove the `: `
 
-        if (colon_location == -1 || line_end == -1)
-        {
-            continue;
-        }
-
-        // Get the keys
-        int key_len = colon_location - line_start_locations[i];
-        char *key = malloc(key_len);
-
-        for (int j = firstline_offset; j < key_len + line_start_locations[i]; j++)
-        {   
-            key[j - line_start_locations[i]] = buff[j];
-        }
-
-        printf("HEADER:%s\n", key);
+        header_results[line][0] = key;
+        header_results[line][1] = value;
+        line++;
     }
-    printf("\n");
 }
 
 void handle_client(int client_fd) {
     printf("Handling client at file descriptor %d\n", client_fd);
 
-    char buff[8192];
+    char buff[MAX_PACKET_SIZE];
     read(client_fd, buff, sizeof(buff));
 
     printf("REQUEST:\n---\n%s---\n", buff);
@@ -232,5 +214,15 @@ void handle_client(int client_fd) {
     char* endpoint = parse_endpoint(buff);
     printf("Request endpoint: %s\n", endpoint);
 
-    parse_headers(buff, lc);
+    char* headers[MAX_PACKET_SIZE][2];
+    parse_headers(buff, headers);
+
+    printf("Request headers:\n");
+    for (size_t i = 0; i < sizeof(headers); i++)
+    {
+        if (headers[i][0])
+            printf("%s: %s\n", headers[i][0], headers[i][1]);
+        else
+            break;
+    }
 }
